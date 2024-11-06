@@ -15,7 +15,7 @@ def send_email(sender_email, password, smtp_server, port, recipient_emails, subj
         message['To'] = ", ".join(recipient_emails)
 
         # Attach the HTML content
-        html_part = MIMEText(html_content, 'html')
+        html_part = MIMEText(html_content, 'plain')
         message.attach(html_part)
 
         # Connect to the SMTP server
