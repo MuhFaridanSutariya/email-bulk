@@ -52,7 +52,6 @@ def get_records(api_url):
 def main():
     st.title("Email Sender Application")
 
-    # Phase 1: Input API URL
     st.subheader("Step 1: Enter API URL")
     api_url = st.text_input("Enter your API request URL")
 
@@ -60,84 +59,70 @@ def main():
     if api_url:
         records_json = get_records(api_url)
 
-    # Phase 2: Select Fields for Email and Category
     if records_json and 'data' in records_json:
         records = records_json['data']
         field_labels = records_json.get('field_labels', {})
 
-        # Convert records to DataFrame
         df = pd.DataFrame(records)
 
-        # Drop ROW_ID if it exists
         df = df.drop(columns=['ROW_ID'], errors='ignore')
 
-        # Rename columns based on field labels
         df = df.rename(columns=field_labels)
 
-        # Display DataFrame and select fields
-        st.subheader("Step 2: Select Fields for Email and Category")
-        
-        # Select email field
-        email_field = st.selectbox("Select Email Field", df.columns.tolist())
-        
-        # Select category field (excluding the selected email field)
-        category_field_options = [col for col in df.columns.tolist() if col != email_field]
-        category_field = st.selectbox("Select Category Field", category_field_options)
+        st.subheader("Step 2: Complete Data Preview")
+        st.dataframe(df)
 
-        # Get lists of emails and categories
-        emails = df[email_field].tolist()
-        categories = df[category_field].tolist()
+        all_fields = df.columns.tolist()
 
-        # Create a mapping between categories and emails
-        category_data = {}
-        for email, category in zip(emails, categories):
-            if category not in category_data:
-                category_data[category] = []
-            category_data[category].append(email)
+        category_field = st.selectbox("Select Category Field for Filtering", all_fields)
+        unique_categories = df[category_field].dropna().unique().tolist()
+        selected_category = st.selectbox("Filter by Category", unique_categories)
 
-        # Display email preview
-        st.subheader("Preview Emails")
-        st.table(df[[email_field, category_field]])
+        filtered_df = df[df[category_field] == selected_category]
 
-        # Phase 3: Email Form
+        st.subheader("Filtered Data Preview")
+        st.dataframe(filtered_df)
+
+        subject = st.text_input("Email Subject")
+        html_content_template = st.text_area("Email Content (Use {field_name} for placeholders)", 
+                                             "Hi {nama},\n\nSelamat anda mendapatkan pulsa Rp. 5000 {category}")
+
         st.subheader("Step 3: Send Email")
         sender_email = st.text_input("Your Email Address")
         password = st.text_input("Password", type='password')
         smtp_server = st.text_input("SMTP Server", "smtp-mail.outlook.com")
         port = st.number_input("Port", min_value=1, max_value=65535, value=587)
 
-        # Input for manually entered emails
+        email_field = st.selectbox("Select Email Field", all_fields)
+
+        recipient_choice = st.radio("Choose Recipient Type", ["Filtered by Category", "All Emails"])
+
+        if recipient_choice == "Filtered by Category":
+            emails = filtered_df[email_field].dropna().tolist()  # Remove NaN values if any
+        else:
+            emails = df[email_field].dropna().tolist()  # Use all emails
+
         manual_emails = st.text_area("Enter Emails Manually (one per line)", height=100)
-
-        # Convert the manual emails input into a list
         manual_emails_list = [email.strip() for email in manual_emails.splitlines() if email.strip()]
-
-        recipient_type = st.radio("Choose Recipient Type", ["By Category", "All Emails"])
-
-        recipient_emails = []
-
-        if recipient_type == "By Category":
-            selected_category = st.selectbox("Select Category", list(category_data.keys()))
-            recipient_emails = category_data[selected_category]
-            st.table(recipient_emails)  # Display emails in a table
-
-        elif recipient_type == "All Emails":
-            recipient_emails = emails
-            st.table(recipient_emails)  # Display all emails in a table
-
-        # Combine manual emails with the selected recipient emails
-        recipient_emails = list(set(recipient_emails + manual_emails_list))  # Remove duplicates
-
-        subject = st.text_input("Subject")
-        html_content = st.text_area("HTML Content")
+        recipient_emails = list(set(emails + manual_emails_list)) 
 
         if st.button("Send Email"):
-            if recipient_emails and subject and html_content:
-                success, feedback = send_email(sender_email, password, smtp_server, port, recipient_emails, subject, html_content)
-                if success:
-                    st.success(feedback)
-                else:
-                    st.error(f"Failed to send email: {feedback}")
+            if recipient_emails and subject and html_content_template:
+                for email in recipient_emails:
+                    if email in df[email_field].values:
+                        row = df[df[email_field] == email].iloc[0].to_dict()
+                    else:
+                        row = {field: "" for field in all_fields}
+
+                    html_content = html_content_template.format(**row)
+
+                    success, feedback = send_email(
+                        sender_email, password, smtp_server, port, [email], subject, html_content
+                    )
+                    if success:
+                        st.success(f"Email sent to {email} successfully!")
+                    else:
+                        st.error(f"Failed to send email to {email}: {feedback}")
             else:
                 st.error("Please fill in all fields.")
 
